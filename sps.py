@@ -270,7 +270,7 @@ CFG = {
     "allowed_commands": ["am start", "input text", "input keyevent", "screencap"],
 
     # ── Self-update URL ───────────────────────────────────────────
-    "update_url": "https://raw.githubusercontent.com/tamper808-lab/Sps/main/sps.py",
+    "update_url": "https://raw.githubusercontent.com/tamerp808-lab/Sps/main/sps.py",
 }
 
 # ──────────────────────────────────────────────────────────────────
