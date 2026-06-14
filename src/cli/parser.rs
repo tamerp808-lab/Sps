@@ -1,0 +1,71 @@
+#[derive(Debug, Clone)]
+pub enum Command {
+    Init, Boot, Status,
+    Plan { goal: String }, Execute,
+    MemoryAdd { content: String }, MemoryEpisode { description: String }, MemorySearch { keyword: String },
+    GoalCreate { description: String }, GoalList,
+    WorldEntities, WorldRelationAdd { from: String, relation: String, to: String }, WorldCheck,
+    ReasonCausal { cause: String, effect: String }, ReasonPattern,
+    FactoryStart { project: String }, FactoryRequirements { description: String }, FactoryValidateCode { code: String },
+    AutonomyGrant { agent: String, domain: String },
+    GovernancePolicy, GovernanceCheck { decision: String },
+    RuntimeCheckpoint, RuntimeRecover { reason: String }, RuntimeUpgrade { version: String },
+    ReplayVerify, InvariantCheck, FullVerification,
+    Approve { proposal_id: String }, Deny { proposal_id: String },
+    Model { name: String },
+    Reflect, Insight, Analyze, Hash, Events, Save, Load,
+    Chat { message: String },
+    Shutdown, Help, Exit, Unknown(String),
+}
+
+pub struct Parser;
+
+impl Parser {
+    pub fn parse(input: &str) -> Command {
+        let parts: Vec<&str> = input.splitn(5, ' ').collect();
+        match parts[0] {
+            "init" => Command::Init,
+            "boot" => Command::Boot,
+            "status" => Command::Status,
+            "plan" => Command::Plan { goal: parts.get(1).unwrap_or(&"").to_string() },
+            "execute" => Command::Execute,
+            "memory" if parts.get(1) == Some(&"add") => Command::MemoryAdd { content: parts.get(2).unwrap_or(&"").to_string() },
+            "memory" if parts.get(1) == Some(&"episode") => Command::MemoryEpisode { description: parts.get(2).unwrap_or(&"").to_string() },
+            "memory" if parts.get(1) == Some(&"search") => Command::MemorySearch { keyword: parts.get(2).unwrap_or(&"").to_string() },
+            "goal" if parts.get(1) == Some(&"create") => Command::GoalCreate { description: parts.get(2).unwrap_or(&"").to_string() },
+            "goal" if parts.get(1) == Some(&"list") => Command::GoalList,
+            "world" if parts.get(1) == Some(&"entities") => Command::WorldEntities,
+            "world" if parts.get(1) == Some(&"relate") && parts.len() >= 5 => Command::WorldRelationAdd { from: parts[2].to_string(), relation: parts[3].to_string(), to: parts[4].to_string() },
+            "world" if parts.get(1) == Some(&"check") => Command::WorldCheck,
+            "reason" if parts.get(1) == Some(&"causal") => Command::ReasonCausal { cause: parts.get(2).unwrap_or(&"").to_string(), effect: parts.get(3).unwrap_or(&"").to_string() },
+            "reason" if parts.get(1) == Some(&"pattern") => Command::ReasonPattern,
+            "factory" if parts.get(1) == Some(&"start") => Command::FactoryStart { project: parts.get(2).unwrap_or(&"").to_string() },
+            "factory" if parts.get(1) == Some(&"require") => Command::FactoryRequirements { description: parts.get(2).unwrap_or(&"").to_string() },
+            "factory" if parts.get(1) == Some(&"validate") => Command::FactoryValidateCode { code: parts.get(2).unwrap_or(&"").to_string() },
+            "autonomy" if parts.get(1) == Some(&"grant") => Command::AutonomyGrant { agent: parts.get(2).unwrap_or(&"").to_string(), domain: parts.get(3).unwrap_or(&"").to_string() },
+            "governance" if parts.get(1) == Some(&"policy") => Command::GovernancePolicy,
+            "governance" if parts.get(1) == Some(&"check") => Command::GovernanceCheck { decision: parts.get(2).unwrap_or(&"").to_string() },
+            "runtime" if parts.get(1) == Some(&"checkpoint") => Command::RuntimeCheckpoint,
+            "runtime" if parts.get(1) == Some(&"recover") => Command::RuntimeRecover { reason: parts.get(2).unwrap_or(&"").to_string() },
+            "runtime" if parts.get(1) == Some(&"upgrade") => Command::RuntimeUpgrade { version: parts.get(2).unwrap_or(&"").to_string() },
+            "replay-verify" => Command::ReplayVerify,
+            "invariant-check" => Command::InvariantCheck,
+            "full-verify" => Command::FullVerification,
+            "approve" if parts.len() >= 2 => Command::Approve { proposal_id: parts[1].to_string() },
+            "deny" if parts.len() >= 2 => Command::Deny { proposal_id: parts[1].to_string() },
+            "model" if parts.len() >= 2 => Command::Model { name: parts[1].to_string() },
+            "reflect" => Command::Reflect,
+            "insight" => Command::Insight,
+            "analyze" => Command::Analyze,
+            "hash" => Command::Hash,
+            "events" => Command::Events,
+            "save" => Command::Save,
+            "load" => Command::Load,
+            "chat" => Command::Chat { message: parts.get(1).unwrap_or(&"").to_string() },
+            "shutdown" => Command::Shutdown,
+            "help" => Command::Help,
+            "exit" => Command::Exit,
+            other => Command::Chat { message: other.to_string() },
+        }
+    }
+}

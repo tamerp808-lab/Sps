@@ -1,0 +1,19 @@
+[package]
+name = "sps"
+version = "3.1.0"
+edition = "2021"
+description = "Sovereign Processing System — نظام تشغيلي معرفي سيادي"
+authors = ["SPS Architect"]
+license = "MIT"
+repository = "https://gitlab.com/your-username/sps"
+keywords = ["ai", "cognitive", "sovereign", "knowledge-management", "llm"]
+categories = ["artificial-intelligence", "command-line-utilities"]
+
+[dependencies]
+sha2 = "0.10"
+thiserror = "2"
+ordered-float = { version = "4.6", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.31", features = ["bundled"] }
+reqwest = { version = "0.12", features = ["json", "blocking"] }

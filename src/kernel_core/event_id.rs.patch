@@ -1,0 +1,16 @@
+--- a/src/kernel_core/event_id.rs
++++ b/src/kernel_core/event_id.rs
+@@ -105,10 +105,10 @@
+     #[inline]
+     pub const fn is_next_of(&self, other: &EventId) -> bool {
+         if self.epoch == other.epoch {
+-            self.seq + 1 == other.seq
+-        } else if self.epoch + 1 == other.epoch {
+-            other.seq == 1
++            self.seq == other.seq + 1
++        } else if other.epoch + 1 == self.epoch {
++            self.seq == 1
+         } else {
+             false
+         }
+     }

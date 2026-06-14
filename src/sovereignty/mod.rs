@@ -1,0 +1,12 @@
+pub mod self_awareness;
+pub mod self_evolution;
+pub mod governance_loop;
+pub mod software_factory_loop;
+pub mod curiosity;
+pub mod insight_engine;
+pub mod memory_governor;
+pub mod proactive_planner;
+pub mod reinforcement;
+pub mod local_responder;
+pub mod dialogue_engine;
+pub mod self_model;

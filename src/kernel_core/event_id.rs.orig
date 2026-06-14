@@ -1,0 +1,316 @@
+// src/kernel_core/event_id.rs
+// Phase 1 — Solid Core
+// Zone A — Canonical (100% Deterministic)
+//
+// Purpose:
+//   EventId is the atomic, deterministic, append-only identifier
+//   for every Event in SPS. It is NOT a random UUID. It is a
+//   strictly monotonic sequence number combined with a logical
+//   epoch prefix to guarantee total order across sessions.
+//
+// Constitution Compliance:
+//   - المادة الثانية  (Zone A)          : Pure function — no I/O, no rand
+//   - المادة الرابعة (Event Model)      : id field of Event
+//   - المادة الخامسة (Reducer Law)      : Passed as part of Event
+//   - المادة السابعة (Replay)           : Replay-safe — identical across runs
+//   - المادة الحادية عشرة (Platform)    : No platform dependency
+//
+// Guarantees:
+//   - Same inputs → Same EventId → Forever
+//   - Comparison is total and deterministic
+//   - Serialization is deterministic (via Display/FromStr)
+//   - No allocation or fallibility in core operations
+
+use std::cmp::Ordering;
+use std::fmt;
+use std::str::FromStr;
+
+/// A unique, deterministic identifier for a single Event in the SPS log.
+///
+/// Structure:
+///   epoch: u64  — session identifier (incremented on each cold boot)
+///   seq:   u64  — event sequence within the session
+///
+/// Invariant:
+///   EventId(a) < EventId(b)  ⟺  (a.epoch < b.epoch) ∨ (a.epoch == b.epoch ∧ a.seq < b.seq)
+///
+/// This type is:
+///   - Copy, Clone, Eq, Hash, Ord  (zero-allocation)
+///   - Serialized as "epoch.seq"    (deterministic, human-readable)
+///   - Constructed ONLY via pure functions
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct EventId {
+    /// Logical session identifier. 0 is the genesis session.
+    pub epoch: u64,
+    /// Monotonically increasing sequence within the epoch.
+    pub seq: u64,
+}
+
+impl EventId {
+    /// The very first EventId in any SPS instance.
+    /// Used for genesis events and as the "previous" for the first real Event.
+    pub const ZERO: EventId = EventId { epoch: 0, seq: 0 };
+
+    /// Creates a new EventId with the given epoch and sequence.
+    ///
+    /// This is a pure constructor. It does NOT validate that the id is
+    /// reachable from any particular state — that is the responsibility
+    /// of the Event log, not the identifier itself.
+    ///
+    /// # Safety
+    /// This function is total and infallible.
+    #[inline]
+    pub const fn new(epoch: u64, seq: u64) -> Self {
+        EventId { epoch, seq }
+    }
+
+    /// Returns the next sequential EventId in the same epoch.
+    ///
+    /// Does NOT check for overflow — u64 provides a sequence space
+    /// large enough that 1 trillion events per second would take
+    /// > 500 years to exhaust.
+    #[inline]
+    pub const fn next(&self) -> Self {
+        EventId {
+            epoch: self.epoch,
+            seq: self.seq + 1,
+        }
+    }
+
+    /// Returns an EventId representing the start of the next epoch.
+    /// Used ONLY during cold boot when the Runtime increments the epoch.
+    #[inline]
+    pub const fn next_epoch(&self) -> Self {
+        EventId {
+            epoch: self.epoch + 1,
+            seq: 1, // First event of the new epoch
+        }
+    }
+
+    /// Returns true if this EventId is the genesis (0.0).
+    #[inline]
+    pub const fn is_zero(&self) -> bool {
+        self.epoch == 0 && self.seq == 0
+    }
+
+    /// Returns the EventId that would be previous to this one.
+    /// Returns None if this is the first event in the epoch.
+    #[inline]
+    pub const fn previous(&self) -> Option<Self> {
+        if self.seq == 0 {
+            None
+        } else {
+            Some(EventId {
+                epoch: self.epoch,
+                seq: self.seq - 1,
+            })
+        }
+    }
+
+    /// Checks if `other` is the immediate successor of `self`.
+    /// Used for chain integrity validation.
+    #[inline]
+    pub const fn is_next_of(&self, other: &EventId) -> bool {
+        if self.epoch == other.epoch {
+            self.seq + 1 == other.seq
+        } else if self.epoch + 1 == other.epoch {
+            // Crossing epoch boundary: self is last of old epoch, other is first of new
+            other.seq == 1
+        } else {
+            false
+        }
+    }
+}
+
+// ─── Display (deterministic serialization) ──────────────────────────
+
+impl fmt::Display for EventId {
+    /// Format: "epoch.seq"
+    /// Example: "3.15000"
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}.{}", self.epoch, self.seq)
+    }
+}
+
+// ─── FromStr (deterministic deserialization) ────────────────────────
+
+/// Error returned when parsing an EventId from a string.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseEventIdError {
+    pub input: String,
+    pub reason: ParseEventIdReason,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParseEventIdReason {
+    MissingDot,
+    InvalidEpoch,
+    InvalidSeq,
+    EmptyInput,
+}
+
+impl fmt::Display for ParseEventIdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Failed to parse EventId from '{}': {:?}",
+            self.input, self.reason
+        )
+    }
+}
+
+impl std::error::Error for ParseEventIdError {}
+
+impl FromStr for EventId {
+    type Err = ParseEventIdError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.is_empty() {
+            return Err(ParseEventIdError {
+                input: s.to_string(),
+                reason: ParseEventIdReason::EmptyInput,
+            });
+        }
+
+        let (epoch_str, seq_str) = s.split_once('.').ok_or_else(|| ParseEventIdError {
+            input: s.to_string(),
+            reason: ParseEventIdReason::MissingDot,
+        })?;
+
+        let epoch = epoch_str.parse::<u64>().map_err(|_| ParseEventIdError {
+            input: s.to_string(),
+            reason: ParseEventIdReason::InvalidEpoch,
+        })?;
+
+        let seq = seq_str.parse::<u64>().map_err(|_| ParseEventIdError {
+            input: s.to_string(),
+            reason: ParseEventIdReason::InvalidSeq,
+        })?;
+
+        Ok(EventId { epoch, seq })
+    }
+}
+
+// ─── Tests (embedded, Zone A compliant: no I/O, no randomness) ─────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zero_is_genesis() {
+        let z = EventId::ZERO;
+        assert!(z.is_zero());
+        assert_eq!(z.epoch, 0);
+        assert_eq!(z.seq, 0);
+    }
+
+    #[test]
+    fn next_increments_seq() {
+        let a = EventId::new(1, 5);
+        let b = a.next();
+        assert_eq!(b.epoch, 1);
+        assert_eq!(b.seq, 6);
+    }
+
+    #[test]
+    fn next_epoch_resets_seq() {
+        let a = EventId::new(1, 999);
+        let b = a.next_epoch();
+        assert_eq!(b.epoch, 2);
+        assert_eq!(b.seq, 1);
+    }
+
+    #[test]
+    fn ordering_is_epoch_then_seq() {
+        let a = EventId::new(1, 10);
+        let b = EventId::new(1, 20);
+        let c = EventId::new(2, 1);
+        let d = EventId::new(2, 1);
+
+        assert!(a < b);
+        assert!(b < c);
+        assert_eq!(c, d);
+        assert!(d > a);
+    }
+
+    #[test]
+    fn previous_works() {
+        let a = EventId::new(1, 0);
+        assert!(a.previous().is_none());
+
+        let b = EventId::new(1, 1);
+        assert_eq!(b.previous(), Some(EventId::new(1, 0)));
+    }
+
+    #[test]
+    fn is_next_of_detects_chain() {
+        let a = EventId::new(1, 10);
+        let b = EventId::new(1, 11);
+        let c = EventId::new(1, 12);
+
+        assert!(b.is_next_of(&a));
+        assert!(c.is_next_of(&b));
+        assert!(!c.is_next_of(&a)); // gap
+        assert!(!a.is_next_of(&b)); // reverse
+    }
+
+    #[test]
+    fn is_next_of_across_epochs() {
+        let last_of_1 = EventId::new(1, 999);
+        let first_of_2 = EventId::new(2, 1);
+        let second_of_2 = EventId::new(2, 2);
+
+        // Epoch boundary
+        assert!(first_of_2.is_next_of(&last_of_1));
+        // Normal within epoch
+        assert!(second_of_2.is_next_of(&first_of_2));
+    }
+
+    #[test]
+    fn display_and_parse_roundtrip() {
+        let ids = vec![
+            EventId::ZERO,
+            EventId::new(0, 1),
+            EventId::new(1, 0),
+            EventId::new(42, 999_999),
+        ];
+
+        for id in ids {
+            let s = id.to_string();
+            let parsed: EventId = s.parse().unwrap();
+            assert_eq!(id, parsed);
+        }
+    }
+
+    #[test]
+    fn parse_errors() {
+        assert!("".parse::<EventId>().is_err());
+        assert!("abc".parse::<EventId>().is_err());
+        assert!("1".parse::<EventId>().is_err());
+        assert!("1.".parse::<EventId>().is_err());
+        assert!(".1".parse::<EventId>().is_err());
+        assert!("a.b".parse::<EventId>().is_err());
+    }
+
+    #[test]
+    fn deterministic_hash() {
+        // EventId must hash identically across platforms
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let id = EventId::new(7, 13);
+        let mut h1 = DefaultHasher::new();
+        let mut h2 = DefaultHasher::new();
+        id.hash(&mut h1);
+        id.hash(&mut h2);
+        assert_eq!(h1.finish(), h2.finish());
+    }
+
+    #[test]
+    fn zero_is_smallest() {
+        let any = EventId::new(0, 1);
+        assert!(EventId::ZERO < any);
+        assert_eq!(EventId::ZERO.cmp(&any), Ordering::Less);
+    }
+}
